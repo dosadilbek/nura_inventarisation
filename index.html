@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Отображение GeoJSON на карте</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        #map { height: 900px; }
+        .legend {
+            background: white;
+            line-height: 1.5em;
+            padding: 10px;
+            margin: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+            opacity: 0.7;
+        }
+        .legend i {
+            width: 18px;
+            height: 18px;
+            float: left;
+            margin-right: 8px;
+            opacity: 0.7;
+        }
+        .feedback-form {
+            display: none;
+            position: absolute;
+            top: 100px;
+            left: 10px;
+            background: #f7f7f7;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+            max-width: 300px;
+        }
+        .feedback-form input, .feedback-form textarea, .feedback-form select {
+            width: 100%;
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+        .feedback-form button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .feedback-form button:hover {
+            background-color: #45a049;
+        }
+        .feedback-form h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        #feedback-btn {
+            position: absolute;
+            top: 20px;
+            left: 70px;
+            z-index: 1000;
+            background: white;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            cursor: pointer;
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <button id="feedback-btn">Добавить отзыв</button>
+    <div class="feedback-form" id="feedback-form">
+        <h3>Отзыв о точке</h3>
+        <form id="feedback-form-data">
+            <label for="name">Наименование:</label>
+            <input type="text" id="name" name="name" required>
+            <label for="date">Дата:</label>
+            <input type="date" id="date" name="date" required>
+            <label for="type">Тип отзыва:</label>
+            <select id="type" name="type" required>
+                <option value="Бродячие животные">Бродячие животные</option>
+                <option value="Мусор">Мусор</option>
+                <option value="Благоустройство">Благоустройство</option>
+                <option value="Дорожное покрытие">Дорожное покрытие</option>
+            </select>
+            <label for="comment">Комментарий:</label>
+            <textarea id="comment" name="comment" rows="4" required></textarea>
+            <label for="media">Фотографии/Видео:</label>
+            <input type="file" id="media" name="media" accept="image/*,video/*" multiple>
+            <input type="hidden" id="lat" name="lat">
+            <input type="hidden" id="lng" name="lng">
+            <button type="submit">Отправить</button>
+            <button type="button" id="close-form-btn">Закрыть</button>
+        </form>
+    </div>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        // Инициализация карты
+        var map = L.map('map', {
+            center: [51.131, 71.366],
+            zoom: 17,
+            maxZoom: 21
+        });
+
+        // Создание базовых слоев
+        var osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            maxZoom: 21
+        });
+
+        var googleSatelliteLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+            attribution: '&copy; <a href="https://www.google.com/maps">Google Maps</a>',
+            maxZoom: 21
+        });
+
+        var whiteLayer = L.tileLayer('', {
+            attribution: 'Белая подложка',
+            maxZoom: 21
+        });
+
+        // Добавление слоя OSM на карту по умолчанию
+        osmLayer.addTo(map);
+
+        // Объект для хранения базовых слоев
+        var baseMaps = {
+            "Белая подложка": whiteLayer,
+            "OpenStreetMap": osmLayer,
+            "Google Satellite": googleSatelliteLayer
+        };
+
+        // Переменная для хранения последнего выделенного слоя и его исходного стиля
+        var highlightedLayer;
+        var originalStyle;
+
+        // Функция сброса стиля
+        function resetHighlight(e) {
+            if (highlightedLayer) {
+                highlightedLayer.setStyle(originalStyle);
+                highlightedLayer = null;
+                originalStyle = null;
+            }
+        }
+
+        // Функция выделения стиля
+        function highlightFeature(e) {
+            var layer = e.target;
+
+            // Если уже есть выделенный слой, сбросьте его стиль
+            resetHighlight();
+
+            // Сохраните исходный стиль нового выделенного слоя
+            originalStyle = { ...layer.options };
+            highlightedLayer = layer;
+
+            // Примените новый стиль для выделения
+            layer.setStyle({
+                weight: 3,
+                color: '#00FFFB',
+                dashArray: '',
+                fillOpacity: 0.7
+            });
+
+            if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
+                layer.bringToFront();
+            }
+        }
+
+        // Функция стиля для начального отображения первого слоя
+        function initialStyle1(feature) {
+            return {
+                fillColor: '#FDFEFE',
+                weight: 1,
+                opacity: 1,
+                color: '#212F3D',
+                fillOpacity: 0.75
+            };
+        }
+
+        // Функция стиля для начального отображения второго слоя
+        function initialStyle2(feature) {
+            return {
+                fillColor: '#ABA18E',
+                weight: 1,
+                opacity: 0.8,
+                color: '#5E5440',
+                fillOpacity: 0.85
+            };
+        }
+
+        // Функция стиля для начального отображения четвертого слоя
+        function initialStyle4(feature) {
+            return {
+                fillColor: '#D4EFDF',
+                weight: 1,
+                opacity: 0.8,
+                color: '#5E5440',
+                fillOpacity: 0.85
+            };
+        }        
+
+        // Функция стиля для начального отображения пятого слоя
+        function initialStyle5(feature) {
+            return {
+                fillColor: '#D7BDE2',
+                weight: 1,
+                opacity: 0.8,
+                color: '#5E5440',
+                fillOpacity: 0.85
+            };
+        }
+
+        // Функция стиля для начального отображения шестого слоя
+        function initialStyle6(feature) {
+            return {
+                fillColor: '#72706D',
+                weight: 1,
+                opacity: 0.8,
+                color: '#5E5440',
+                fillOpacity: 0.85
+            };
+        }        
+
+        // Функция стиля для начального отображения седьмого слоя
+        function initialStyle7(feature) {
+            return {
+                fillColor: '#FFE1B1',
+                weight: 1,
+                opacity: 0.8,
+                color: '#5E5440',
+                fillOpacity: 0.45
+            };
+        }             
+
+        // Функция стиля для начального отображения седьмого слоя
+        function initialStyle8(feature) {
+            return {
+                fillColor: '#B1DFFF',
+                weight: 1,
+                opacity: 0.8,
+                color: '#5E5440',
+                fillOpacity: 0.45
+            };
+        }
+
+        // Переменная для хранения окружностей
+        var circles = [];
+
+        // Функция для создания окружностей в зависимости от значения поля "type"
+        function stylePoints(feature, latlng) {
+            var options;
+            switch (feature.properties.type) {
+                case 'Тренажер':
+                    options = { radius: 7, fillColor: 'gray', color: 'blue', weight: 0.6, opacity: 1, fillOpacity: 0.8 };
+                    break;
+                case 'Скамья':
+                    options = { radius: 7, fillColor: 'LightCoral', color: 'blue', weight: 0.6, opacity: 1, fillOpacity: 0.8 };
+                    break;
+                case 'Фонарный столб':
+                    options = { radius: 7, fillColor: 'yellow', color: 'blue', weight: 0.6, opacity: 1, fillOpacity: 0.8 };
+                    break;
+                case 'Элемент детской площадки':
+                    options = { radius: 7, fillColor: 'white', color: 'blue', weight: 0.6, opacity: 1, fillOpacity: 0.8 };
+                    break;
+                default:
+                    options = { radius: 7, fillColor: 'green', color: 'green', weight: 0.6, opacity: 1, fillOpacity: 0.8 };
+            }
+            var circle = L.circleMarker(latlng, options);
+            circles.push(circle);
+            return circle;
+        }
+
+        // Функция для добавления всплывающих окон к слоям
+        function onEachFeature(feature, layer) {
+            if (feature.properties && feature.properties.name) {
+                layer.bindPopup(feature.properties.name);
+            }
+        }
+
+        // Функция для загрузки GeoJSON слоя из файла
+        function loadGeoJSON(url, options) {
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    var layer = L.geoJSON(data, options);
+                    overlayMaps[options.name] = layer;
+                    // Добавление контроллера слоев на карту с новым слоем
+                    layerControl.addOverlay(layer, options.name);
+                    if (options.name === "Застройка") {
+                        layer.addTo(map);  // Добавляем только слой "Застройка" по умолчанию
+                    }
+                })
+                .catch(error => console.error('Error loading GeoJSON:', error));
+        }
+
+        // Объект для хранения оверлейных слоев
+        var overlayMaps = {};
+
+        // Создание контроллера слоев
+        var layerControl = L.control.layers(baseMaps, overlayMaps).addTo(map);
+
+        // Загрузка GeoJSON слоев
+        loadGeoJSON('building_demo.geojson', {
+            name: "Застройка",
+            style: initialStyle1,
+            onEachFeature: function (feature, layer) {
+                var popupContent = "<strong>Тип:</strong> " + feature.properties.type +
+                                   "<br><strong>Этажность:</strong> " + feature.properties.level +
+                                   "<br><strong>Класс:</strong> " + feature.properties["class"] +
+                                   "<br><strong>Застройщик:</strong> " + feature.properties.developer +
+                                   "<br><strong>Класс жилья:</strong> " + feature.properties.class_resid +
+                                   "<br><strong>Площадь:</strong> " + feature.properties.area +
+                                   "<br><strong>Примечание:</strong> " + feature.properties.note;
+                layer.bindPopup(popupContent);
+                layer.on({
+                    click: highlightFeature
+                });
+            }
+        });
+
+        loadGeoJSON('trottoir_demo.geojson', {
+            name: "Тротуар",
+            style: initialStyle2,
+            onEachFeature: function (feature, layer) {
+                var popupContent = "<Strong>Площадь:</strong> " + feature.properties.area +
+                                   "<br><strong>Тип:</strong> " + feature.properties.type +
+                                   "<br><strong>Последнее обновление:</strong> " + feature.properties.update +
+                                   "<br><strong>Ответственное лицо:</strong> " + feature.properties.responsible +
+                                   "<br><strong>Цена:</strong> " + feature.properties.price +
+                                   "<br><strong>Поставщик:</strong> " + feature.properties.supplier +
+                                   "<br><strong>Артикул:</strong> " + feature.properties.descriptor +
+                                   "<br><strong>Статус:</strong> " + feature.properties.status +
+                                   "<br><strong>Примечание:</strong> " + feature.properties.note +
+                                   "<br><strong>Номер документа:</strong> " + feature.properties.docnumber;
+                layer.bindPopup(popupContent);
+                layer.on({
+                    click: highlightFeature
+                });
+            }
+        });
+
+        loadGeoJSON('elements_demo.geojson', {
+            name: "Элементы",
+            pointToLayer: function (feature, latlng) {
+                return stylePoints(feature, latlng);
+            },
+            onEachFeature: function (feature, layer) {
+                var popupContent = "<Strong>Тип:</strong> " + feature.properties.type +
+                                   "<br><strong>Материал:</strong> " + feature.properties.material +
+                                   "<br><strong>Последнее обновление:</strong> " + feature.properties.update +
+                                   "<br><strong>Ответственное лицо:</strong> " + feature.properties.responsible +
+                                   "<br><strong>Цена:</strong> " + feature.properties.price +
+                                   "<br><strong>Поставщик:</strong> " + feature.properties.supplier +
+                                   "<br><strong>Артикул:</strong> " + feature.properties.descriptor +
+                                   "<br><strong>Статус:</strong> " + feature.properties.status +
+                                   "<br><strong>Примечание:</strong> " + feature.properties.note +
+                                   "<br><strong>Номер документа:</strong> " + feature.properties.docnumber;
+                layer.bindPopup(popupContent);
+                layer.on({
+                    click: highlightFeature
+                });
+            }
+        });
+
+        loadGeoJSON('green_demo.geojson', {
+            name: "Озеленение",
+            style: initialStyle4,
+            onEachFeature: function (feature, layer) {
+                var popupContent = "<strong>Площадь:</strong> " + feature.properties.area +
+                                   "<br><strong>Тип:</strong> " + feature.properties.type +
+                                   "<br><strong>Последнее обновление:</strong> " + feature.properties.update +
+                                   "<br><strong>Ответственное лицо:</strong> " + feature.properties.responsible +
+                                   "<br><strong>Цена:</strong> " + feature.properties.price +
+                                   "<br><strong>Поставщик:</strong> " + feature.properties.supplier +
+                                   "<br><strong>Артикул:</strong> " + feature.properties.descriptor +
+                                   "<br><strong>Статус:</strong> " + feature.properties.status +
+                                   "<br><strong>Примечание:</strong> " + feature.properties.note +
+                                   "<br><strong>Номер документа:</strong> " + feature.properties.docnumber;
+                layer.bindPopup(popupContent);
+                layer.on({
+                    click: highlightFeature
+                });
+            }
+        }); 
+
+        loadGeoJSON('playgrounds_demo.geojson', {
+            name: "Площадки",
+            style: initialStyle5,
+            onEachFeature: function (feature, layer) {
+                var popupContent = "<strong>Тип:</strong> " + feature.properties.type +
+                                   "<br><strong>Площадь:</strong> " + feature.properties.area +
+                                   "<br><strong>Класс:</strong> " + feature.properties.class +
+                                   "<br><strong>Последнее обновление:</strong> " + feature.properties["update-1"]
+                                   "<br><strong>Материал:</strong> " + feature.properties.material +
+                                   "<br><strong>Ответственное лицо:</strong> " + feature.properties.responsible +
+                                   "<br><strong>Статус:</strong> " + feature.properties.status +
+                                   "<br><strong>Примечание:</strong> " + feature.properties.note +
+                                   "<br><strong>Номер документа:</strong> " + feature.properties.docnumber;
+
+                layer.bindPopup(popupContent);
+                layer.on({
+                    click: highlightFeature
+                });
+            }
+        });
+
+        loadGeoJSON('rds_demo.geojson', {
+            name: "Асфальт",
+            style: initialStyle6,
+            onEachFeature: function (feature, layer) {
+                var popupContent = "<strong>Тип:</strong> " + feature.properties.type +
+                                   "<br><strong>Площадь:</strong> " + feature.properties.area +
+                                   "<br><strong>Последнее обновление:</strong> " + feature.properties["update-1"] +
+                                   "<br><strong>Примечание:</strong> " + feature.properties.note;
+                layer.bindPopup(popupContent);
+                layer.on({
+                    click: highlightFeature
+                });
+            }
+        });
+
+        loadGeoJSON('semantic_demo.geojson', {
+            name: "Семантическое районирование",
+            style: initialStyle7,
+            onEachFeature: function (feature, layer) {
+                var popupContent = "<strong>Название:</strong> " + feature.properties.name;
+                layer.bindPopup(popupContent);
+                layer.on({
+                    click: highlightFeature
+                });
+            }
+        });
+
+        loadGeoJSON('quartals_demo.geojson', {
+            name: "Кварталы",
+            style: initialStyle8,
+            onEachFeature: function (feature, layer) {
+                var popupContent = "<strong>Название:</strong> " + feature.properties.name +
+                                   "<br><strong>Площадь зданий:</strong> " + feature.properties.area_buildings +
+                                   "<br><strong>Площадь озеленения:</strong> " + feature.properties.area_green +
+                                   "<br><strong>Площадь площадок:</strong> " + feature.properties.area_playgrounds +
+                                   "<br><strong>Площадь дорог:</strong> " + feature.properties.area_rds +
+                                   "<br><strong>Площадь тротуара:</strong> " + feature.properties.area_trottoir;
+                layer.bindPopup(popupContent);
+                layer.on({
+                    click: highlightFeature
+                });
+            }
+        });
+
+        // Создание контроллера легенды
+        var legend = L.control({ position: 'bottomright' });
+
+        legend.onAdd = function (map) {
+            var div = L.DomUtil.create('div', 'legend');
+            div.innerHTML += '<strong>Условные обозначения:</strong><br>';
+            div.innerHTML += '<i style="background: grey"></i> Тренажер<br>';
+            div.innerHTML += '<i style="background: LightCoral"></i> Скамья<br>';
+            div.innerHTML += '<i style="background: yellow"></i> Фонарный столб<br>';
+            div.innerHTML += '<i style="background: white"></i> Элемент детской площадки<br>';
+            div.innerHTML += '<i style="background: green"></i> Другие элементы<br>';
+            return div;
+        };
+
+        legend.addTo(map);
+
+        // Функция для управления видимостью окружностей в зависимости от масштаба
+        function updateCircleVisibility() {
+            var zoomLevel = map.getZoom();
+            console.log("Current zoom level:", zoomLevel); // Debug message
+            circles.forEach(function (circle) {
+                if (zoomLevel < 18) {
+                    circle.setStyle({ opacity: 0, fillOpacity: 0 });
+                    console.log("Circle hidden");
+                } else {
+                    circle.setStyle({ opacity: 1, fillOpacity: 0.8 });
+                    console.log("Circle shown");
+                }
+            });
+        }
+
+        // Привязка функции управления видимостью окружностей к событию изменения масштаба
+        map.on('zoomend', updateCircleVisibility);
+
+        // Начальная установка видимости окружностей
+        updateCircleVisibility();
+
+        // Функция для обновления порядка слоев
+        function updateLayerOrder() {
+            if (overlayMaps["Элементы"]) {
+                overlayMaps["Элементы"].bringToFront();
+            }
+        }
+
+        // Привязка функции обновления порядка слоев к событиям добавления и изменения масштаба
+        map.on('layeradd', updateLayerOrder);
+        map.on('zoomend', updateLayerOrder);
+
+        // Начальная установка порядка слоев
+        updateLayerOrder();
+
+        // Функциональность обратной связи
+        var feedbackBtn = document.getElementById('feedback-btn');
+        var feedbackForm = document.getElementById('feedback-form');
+        var feedbackFormData = document.getElementById('feedback-form-data');
+        var latInput = document.getElementById('lat');
+        var lngInput = document.getElementById('lng');
+        var closeFormBtn = document.getElementById('close-form-btn');
+        var mapContainer = document.getElementById('map');
+        var marker;
+
+        feedbackBtn.onclick = function() {
+            mapContainer.style.cursor = 'crosshair';
+            map.once('click', function(e) {
+                var latlng = e.latlng;
+                latInput.value = latlng.lat;
+                lngInput.value = latlng.lng;
+                if (marker) {
+                    map.removeLayer(marker);
+                }
+                marker = L.marker(latlng).addTo(map);
+                feedbackForm.style.display = 'block';
+                mapContainer.style.cursor = 'default';
+                document.getElementById('date').value = new Date().toISOString().split('T')[0];
+            });
+        };
+
+        closeFormBtn.onclick = function() {
+            feedbackForm.style.display = 'none';
+            if (marker) {
+                map.removeLayer(marker);
+            }
+        };
+
+        feedbackFormData.onsubmit = function(event) {
+            event.preventDefault();
+
+            var formData = new FormData(feedbackFormData);
+            var data = {};
+            formData.forEach((value, key) => data[key] = value);
+
+            // Отправка данных на сервер для сохранения в файл
+            fetch('/save_feedback', {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json'
+                },
+                body: formData
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    alert('Отзыв сохранен!');
+                    feedbackForm.style.display = 'none';
+                    feedbackFormData.reset();
+                    if (marker) {
+                        map.removeLayer(marker);
+                    }
+                } else {
+                    alert('Ошибка при сохранении отзыва.');
+                }
+            })
+            .catch(error => console.error('Error:', error));
+        };
+    </script>
+</body>
+</html>

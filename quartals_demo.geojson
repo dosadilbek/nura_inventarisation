@@ -1,0 +1,9 @@
+{
+"type": "FeatureCollection",
+"name": "quartals_demo",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "name": "ЖК \"Кулагер\"", "area_buildings": 5649, "area_green": 6164, "area_playgrounds": 1411, "area_rds": 6592, "area_trottoir": 2781 }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 71.364416873574953, 51.131748353818885 ], [ 71.363987919534793, 51.130463938692785 ], [ 71.366136148386602, 51.130178464784592 ], [ 71.366565612573481, 51.131464229580622 ], [ 71.364416873574953, 51.131748353818885 ] ] ] } },
+{ "type": "Feature", "properties": { "name": "ЖК \"Кулагер-2\"", "area_buildings": null, "area_green": null, "area_playgrounds": null, "area_rds": null, "area_trottoir": null }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 71.366997899862852, 51.131416305712555 ], [ 71.366568945822692, 51.130131890586455 ], [ 71.368717174674501, 51.129846416678262 ], [ 71.36914663886138, 51.131132181474293 ], [ 71.366997899862852, 51.131416305712555 ] ] ] } }
+]
+}
